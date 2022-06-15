@@ -2,7 +2,7 @@ const { query } = require('express')
 const Product = require('../models/Product')
 
 const getAllProducts = async (request, response) => {
-    const { featured, company, name, sort } = request.query
+    const { featured, company, name, sort, fields, numericFilters } = request.query
     const queryObject = {}
 
     if(featured) {
@@ -18,6 +18,27 @@ const getAllProducts = async (request, response) => {
         queryObject.name = { $regex: name, $options: 'i'} // checks all occurrances of name(query) in name of the products
     }
 
+    if(numericFilters) {
+        const operatorMap = {
+            '>': '$gt',
+            '>=': '$gte',
+            '=': '$eq',
+            '<': '$lt',
+            '<=': '$lte'
+        }
+
+        const regEx = /\b(<|>|<=|>=|=)\b/g
+        let filters = numericFilters.replace(regEx, (match) => `-${operatorMap[match]}-`)
+
+        const options = ['price', 'rating']
+        filters = filters.split(',').forEach((item) => {
+            const [field, operator, value] = item.split('-')
+            if(options.includes(field)) {
+                queryObject[field] = { [operator]: Number(value) }
+            }
+        })
+    }
+
     let result = Product.find(queryObject)
 
     if(sort) {
@@ -26,6 +47,18 @@ const getAllProducts = async (request, response) => {
     } else {
         result = result.sort('createdAt')
     }
+
+    if(fields) {
+        const fieldsList = fields.split(',').join(' ')
+        result = result.select(fieldsList)
+    }
+
+    const page = Number(request.query.page) || 1
+    const limit = Number(request.query.limit) || 10
+    const skip = (page - 1) * limit
+    
+    result = result.skip(skip).limit(limit)
+
     // console.log(queryObject)
     const products = await result
     response.status(200).json({ msg: products, nbHits: products.length })
